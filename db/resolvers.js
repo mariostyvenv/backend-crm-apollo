@@ -11,6 +11,30 @@ const crearToken = (usuario, secreta, expiresIn) => {
     return jwt.sign({id, nombre, apellido, email}, secreta, {expiresIn})
 }
 
+const calcularMejoresClientes = async () =>{
+    return await Pedido.aggregate([
+        { $match : { estado : "COMPLETADO" } },
+        { $group : {
+            _id : "$cliente", 
+            total: { $sum: '$total' }
+        }}, 
+        {
+            $lookup: {
+                from: 'clientes', 
+                localField: '_id',
+                foreignField: "_id",
+                as: "cliente"
+            }
+        }, 
+        {
+            $limit: 10
+        }, 
+        {
+            $sort : { total : -1 }
+        }
+    ]);
+}
+
 const resolvers = {
     Query:{
         obtenerUsuario: async(_, {token}) =>{
@@ -103,28 +127,7 @@ const resolvers = {
             return pedidos
         },
         mejoresClientes: async () => {
-            const clientes = await Pedido.aggregate([
-                { $match : { estado : "COMPLETADO" } },
-                { $group : {
-                    _id : "$cliente", 
-                    total: { $sum: '$total' }
-                }}, 
-                {
-                    $lookup: {
-                        from: 'clientes', 
-                        localField: '_id',
-                        foreignField: "_id",
-                        as: "cliente"
-                    }
-                }, 
-                {
-                    $limit: 10
-                }, 
-                {
-                    $sort : { total : -1 }
-                }
-            ]);
-            return clientes
+            return await calcularMejoresClientes()
         },
         mejoresVendedores: async () => {
             const vendedores = await Pedido.aggregate([
@@ -308,6 +311,8 @@ const resolvers = {
             nuevoPedido.vendedor = ctx.usuario.id
 
             const resultado = await nuevoPedido.save()
+            const mejores = await calcularMejoresClientes()
+            ctx.pubsub.publish('MEJORES_CLIENTES', {mejoresClientes: mejores})
             return resultado
 
         },
@@ -349,6 +354,8 @@ const resolvers = {
             }
 
             const resultado = await Pedido.findOneAndUpdate({_id:id}, input, {new:true})
+            const mejores = await calcularMejoresClientes()
+            ctx.pubsub.publish('MEJORES_CLIENTES', {mejoresClientes: mejores})
             return resultado
         },
         eliminarPedido: async (_,{id}, ctx) => {
@@ -365,6 +372,13 @@ const resolvers = {
 
             await Pedido.findOneAndDelete({_id:id})
             return "Pedido eliminado"
+        }
+    },
+    Subscription:{
+        mejoresClientes:{
+            subscribe: async (_, __, {pubsub}) => {
+                return await pubsub.asyncIterator('MEJORES_CLIENTES')
+            }
         }
     }
 }

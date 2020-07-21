@@ -147,6 +147,10 @@ const typeDefs = gql`
         eliminarPedido(id: ID!) : String
     }
 
+    type Subscription{
+        mejoresClientes:[TopCliente]
+    }
+
 `
 
 module.exports = typeDefs
